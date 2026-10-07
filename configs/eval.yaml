@@ -1,0 +1,22 @@
+# Onboarding comparison and metric configuration (Track C).
+
+question_budget: 10
+ranking_k: [5, 10, 20]
+
+# Convergence target: fraction of a reference score (computed from a user's
+# full onboarding-pool ratings) that counts as "reached target."
+target_fraction_of_reference: 0.9
+
+# Binary relevance threshold for MAP@k on the hidden test set.
+relevance_rating_threshold: 4.0
+
+mock_vectors:
+  # Used only until Track A delivers real vectors/artifacts. Keeps the
+  # evaluation harness and API runnable end-to-end today.
+  enabled: true
+  n_dims: 32
+  seed: 7
+
+# Repeat the comparison over these seeds (fixed-sequence start + user-model
+# randomness). The user split is shared and not affected by these.
+seeds: [0, 1, 2, 3, 4]

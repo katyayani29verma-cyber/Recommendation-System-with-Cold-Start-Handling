@@ -1,0 +1,32 @@
+# Dataset and split configuration shared across all three tracks.
+# Everyone must train/evaluate against this file so results are comparable.
+
+dataset:
+  name: ml-latest-small
+  url: https://files.grouplens.org/datasets/movielens/ml-latest-small.zip
+  raw_dir: data/raw
+  processed_dir: data/processed
+
+# Ratings >= this threshold count as positive/implicit interactions.
+positive_rating_threshold: 4.0
+
+split:
+  seed: 42
+  # Fraction of users held out entirely for cold-start evaluation.
+  eval_user_fraction: 0.2
+  # Of each eval user's ratings, fraction kept as the onboarding answer pool
+  # (used to simulate pairwise answers); the rest is the hidden test set.
+  onboarding_pool_fraction: 0.5
+  # Minimum ratings an eval user must have to be usable (enough for both
+  # an onboarding pool and a meaningful hidden test set).
+  min_ratings_per_eval_user: 10
+
+niche_subset:
+  # A movie is "popular" if it has at least this many ratings in core-training data.
+  min_ratings_for_popularity: 50
+  # A user lands in the niche subset if their correlation with the mean
+  # rating of popular movies they rated falls below this threshold.
+  consensus_correlation_threshold: 0.0
+  # Minimum number of popular movies a user must have rated to estimate
+  # their consensus correlation.
+  min_popular_ratings_for_membership: 5

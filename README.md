@@ -4,7 +4,33 @@
 
 Adaptive Taste explores whether choosing onboarding questions adaptively can produce good recommendations with fewer answers than a fixed questionnaire, particularly for users whose tastes differ from mainstream preferences.
 
-**Status:** Project design and implementation roadmap. The components below are planned; benchmark results and runnable setup instructions will be added after implementation.
+**Status:** Project design and implementation roadmap, with Track C's initial scaffolding in place (data split, fixed-baseline question builder, evaluation metrics, FastAPI service, Streamlit demo) running against mock Track A/B placeholders. See [Getting started](#getting-started) below. Real collaborative vectors (Track A) and Bayesian active learning (Track B) are not implemented yet.
+
+## Getting started
+
+Track C's scaffolding (data splits, fixed baseline, evaluation harness, API, demo) is runnable today against **mock** Track A vectors and a mock Track B user model (see `src/core/mock_vectors.py` and `src/active_learning/mock_model.py`). Numbers produced this way are not meaningful recommendations -- they only exercise the pipeline end to end until the real collaborative model and active-learning engine land.
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # Windows; use `source .venv/bin/activate` on macOS/Linux
+pip install -r requirements.txt
+
+# Download MovieLens (ml-latest-small, configured in configs/data.yaml)
+python -m src.data.download
+
+# Build the shared user cold-start split (core-train / onboarding-pool / hidden-test)
+python -m src.data.splits
+
+# Run the fixed-vs-adaptive onboarding comparison (writes reports/onboarding_comparison.csv)
+python -m src.evaluation.run_comparison
+
+# Run the test suite
+pytest tests/ -q
+
+# Serve the API, then the demo in a second terminal
+uvicorn src.api.main:app --reload
+streamlit run demo/app.py
+```
 
 ## The problem
 
@@ -244,20 +270,20 @@ Compute popularity and consensus from core-training data. Use a separate evaluat
 
 Hold out selected movies' interactions from collaborative training. Use only permitted metadata to estimate their vectors, then evaluate ranking quality using held-out interactions. Keep this experiment separate from the main onboarding comparison.
 
-## Proposed repository structure
+## Repository structure
 
 ```text
-adaptive-taste/
+.
 ├── README.md
-├── configs/                 # Training and evaluation settings
-├── data/                    # Local data; follow dataset distribution terms
+├── configs/                 # Training and evaluation settings (data.yaml, eval.yaml)
+├── data/                    # Local data; follow dataset distribution terms (gitignored)
 ├── artifacts/               # Versioned trained outputs
 ├── src/
 │   ├── data/                # Loading, preprocessing, and shared splits
-│   ├── core/                # Track A: training, vectors, and ranking
-│   ├── content/             # Track A: embeddings and cold-item mapping
-│   ├── active_learning/     # Track B: posterior and question selection
-│   ├── evaluation/          # Track C: baseline and metrics
+│   ├── core/                # Track A: vectors and ranking (mock_vectors.py until trained)
+│   ├── content/             # Track A: embeddings and cold-item mapping (not yet implemented)
+│   ├── active_learning/     # Track B: posterior and question selection (mock_model.py until trained)
+│   ├── evaluation/          # Track C: baseline, metrics, and comparison harness
 │   └── api/                 # Track C: FastAPI integration
 ├── demo/                    # Track C: Streamlit interface
 ├── tests/                   # Model, inference, and integration checks
@@ -265,7 +291,7 @@ adaptive-taste/
 └── Dockerfile
 ```
 
-This layout is proposed; the files and components have not been created yet.
+This layout matches the originally proposed structure. `src/core` and `src/active_learning` currently hold mock implementations behind the shared interfaces (`src/core/interfaces.py`, `src/active_learning/interfaces.py`) so Track C's harness, API, and demo work end to end; `src/content` is still empty pending Track A's content embeddings and cold-item mapping.
 
 ## Roadmap
 
