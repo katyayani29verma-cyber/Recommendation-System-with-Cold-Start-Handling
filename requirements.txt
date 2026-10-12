@@ -11,6 +11,7 @@ requests>=2.31
 pytest>=8.0
 httpx>=0.27  # needed for FastAPI's TestClient in tests
 
-# Track A / B dependencies (uncomment as those tracks come online)
-# implicit>=0.7
+
 # sentence-transformers>=2.6
+implicit==0.7.3
+threadpoolctl>=3.1

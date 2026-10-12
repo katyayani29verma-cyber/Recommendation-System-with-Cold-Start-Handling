@@ -30,3 +30,6 @@ niche_subset:
   # Minimum number of popular movies a user must have rated to estimate
   # their consensus correlation.
   min_popular_ratings_for_membership: 5
+
+positive_rating_threshold: 4.0
+negative_rating_threshold: 2.0
