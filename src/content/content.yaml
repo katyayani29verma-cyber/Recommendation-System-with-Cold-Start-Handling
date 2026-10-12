@@ -1,0 +1,12 @@
+model_name: sentence-transformers/all-MiniLM-L6-v2
+model_revision: null
+
+batch_size: 64
+cpu_threads: 4
+
+validation_fraction: 0.2
+seed: 42
+ridge_alphas: [0.1, 1.0, 10.0, 100.0]
+
+cache_dir: data/processed/content_embeddings
+artifact_root: artifacts

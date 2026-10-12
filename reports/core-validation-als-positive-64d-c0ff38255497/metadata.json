@@ -1,0 +1,24 @@
+{
+  "model_artifact": "C:\\Users\\Katyayani Verma\\OneDrive\\Desktop\\Recommendation-System-with-Cold-Start-Handling\\artifacts\\als-positive-64d-c0ff38255497",
+  "model_manifest_sha256": "3d0c2fdffdac9c4ee2854d764ea4846b9c27da8cc4da17ce283bbb6b9168f832",
+  "interaction_mode": "positive",
+  "parameters": {
+    "factors": 64,
+    "iterations": 20,
+    "num_threads": 0,
+    "seed": 42,
+    "regularization": 0.01,
+    "positive_confidence": 40.0,
+    "negative_confidence": 40.0
+  },
+  "evaluated_users": 487,
+  "catalog_movies": 7497,
+  "relevance": "binary held-out positive interactions",
+  "popularity": "positive training-interaction counts",
+  "exclusions": "observed core-user movie history, excluding the held-out validation positives",
+  "k_values": [
+    5,
+    10,
+    20
+  ]
+}

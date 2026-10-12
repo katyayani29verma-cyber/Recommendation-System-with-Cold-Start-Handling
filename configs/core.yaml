@@ -2,11 +2,11 @@ validation:
   fraction: 0.2
   seed: 42
 als:
-  interaction_mode: positive
+  interaction_mode: signed
   factors: 32
   regularization: 0.01
   positive_confidence: 40.0
-  negative_confidence: 40.0
+  negative_confidence: 10.0
   iterations: 20
   num_threads: 0
   seed: 42
