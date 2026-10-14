@@ -1,317 +1,708 @@
 # Adaptive Taste
 
-**A cold-start movie recommender that learns user preferences through information-driven questions.**
+**An information-driven cold-start movie recommender that learns a new user’s preferences through adaptive questions.**
 
-Adaptive Taste explores whether choosing onboarding questions adaptively can produce good recommendations with fewer answers than a fixed questionnaire, particularly for users whose tastes differ from mainstream preferences.
+Adaptive Taste investigates whether selecting onboarding questions according to their expected information value can produce useful recommendations with fewer answers than a fixed, popular-movie questionnaire.
 
-**Status:** Project design and implementation roadmap, with Track C's initial scaffolding in place (data split, fixed-baseline question builder, evaluation metrics, FastAPI service, Streamlit demo) running against mock Track A/B placeholders. See [Getting started](#getting-started) below. Real collaborative vectors (Track A) and Bayesian active learning (Track B) are not implemented yet.
+The system combines:
 
-## Getting started
+- Collaborative filtering using implicit-feedback ALS
+- Transformer-based movie metadata embeddings
+- Content-based handling of unseen movies
+- Bayesian user-preference estimation
+- Adaptive movie-pair question selection
+- Fixed-versus-adaptive onboarding evaluation
+- A FastAPI backend and Streamlit demonstration interface
 
-Track C's scaffolding (data splits, fixed baseline, evaluation harness, API, demo) is runnable today against **mock** Track A vectors and a mock Track B user model (see `src/core/mock_vectors.py` and `src/active_learning/mock_model.py`). Numbers produced this way are not meaningful recommendations -- they only exercise the pipeline end to end until the real collaborative model and active-learning engine land.
+## Project status
 
-```bash
-python -m venv .venv
-.venv\Scripts\activate          # Windows; use `source .venv/bin/activate` on macOS/Linux
-pip install -r requirements.txt
+| Track | Status |
+| --- | --- |
+| Track A — Recommendation Core | **Implementation and item cold-start evaluation complete** |
+| Track B — Active Learning Engine | Integration in progress |
+| Track C — Evaluation and Deployment | Scaffolding available; real-model integration and deployment remain |
 
-# Download MovieLens (ml-latest-small, configured in configs/data.yaml)
-python -m src.data.download
+Track A currently provides a tested recommendation core with:
 
-# Build the shared user cold-start split (core-train / onboarding-pool / hidden-test)
-python -m src.data.splits
+- A trained 32-dimensional ALS latent space
+- User and movie vectors
+- Recommendation ranking by dot product
+- Prior mean and covariance for user-preference initialization
+- Sentence Transformer movie embeddings
+- A trained content-to-ALS mapping
+- Hybrid support for all 9,742 MovieLens catalog movies
+- A leakage-controlled item cold-start experiment
+- Versioned and checksum-verified artifacts
 
-# Run the fixed-vs-adaptive onboarding comparison (writes reports/onboarding_comparison.csv)
-python -m src.evaluation.run_comparison
-
-# Run the test suite
-pytest tests/ -q
-
-# Serve the API, then the demo in a second terminal
-uvicorn src.api.main:app --reload
-streamlit run demo/app.py
-```
+The complete adaptive onboarding experiment still requires Track B’s real posterior and question-selection implementation to be connected to Track C’s evaluation pipeline.
 
 ## The problem
 
-A new user has no interaction history, so a recommendation system has little evidence about their preferences. This is the **user cold-start problem**.
+A new user has no interaction history, so the recommendation system initially knows very little about their preferences. This is the **user cold-start problem**.
 
-A common onboarding approach asks everyone to select from the same popular items. These questions can be useful, but may provide limited information for users with unusual tastes.
+Many applications handle this by showing every new user the same popular movies. That approach can work for mainstream users but may collect little useful information from users with niche or unusual tastes.
 
-Adaptive Taste asks a different question:
+Adaptive Taste instead asks:
 
-> Given this user's previous answers, which movie comparison would reduce our uncertainty about their preferences the most?
+> Given this user’s previous answers, which movie comparison is expected to reduce uncertainty about their preferences the most?
 
-The project also addresses **item cold start**: representing a new movie before it has accumulated ratings.
+The project also handles **item cold-start**. When a movie has no ratings, its title and genres are converted into a vector compatible with the collaborative recommendation model.
 
 ## What we are building
 
-A movie recommendation demo with two onboarding modes:
+The application compares two onboarding strategies:
 
-- **Fixed onboarding:** a predetermined sequence of movie-pair questions.
-- **Adaptive onboarding:** the next pair is selected using expected information gain.
+1. **Fixed onboarding**  
+   Every user receives a predetermined sequence of popular movie questions.
 
-Users choose between two movies or skip a question when they cannot answer. Their answers update an estimated taste profile, which is used to rank movies.
+2. **Adaptive onboarding**  
+   Each question is selected from the current uncertainty about that specific user’s preference vector.
 
-The demo will show two users receiving different question sequences as their answers diverge. Before any answers, users with the same prior may receive the same first question.
+A user chooses between two movies or skips the question. Each answer updates the estimated preference distribution, which is then used to rank movies.
 
-The experimental goal is to compare recommendation quality against the number of questions asked. Improvements are a hypothesis to test, not an assumed outcome.
+The main project evaluation will measure:
 
-## How it works
+- Recommendation quality after each question
+- Questions needed to reach a target recommendation quality
+- Percentage of users who reach the target
+- Performance for users with niche tastes
+- Performance of fixed versus adaptive onboarding
 
-### Offline training
-
-1. Prepare historical movie ratings and metadata using an agreed training split.
-2. Train a matrix-factorization model to learn user and movie vectors.
-3. Encode movie metadata with a sentence-transformer.
-4. Train a mapping from content embeddings into the collaborative movie-vector space.
-5. Export versioned vectors, ID mappings, model configuration, and the content mapping.
-
-### Online onboarding
-
-1. Initialize a probability distribution over a new user's possible preference vectors.
-2. Score candidate movie pairs by how much an answer is expected to reduce uncertainty.
-3. Ask the highest-scoring eligible question.
-4. Update the user's posterior after their answer; handle skips separately.
-5. Rank movies using the current preference estimate.
-6. Repeat until the user stops or the question budget is reached.
-
-The shared movie model stays fixed during a session. A user's answers update their session preference estimate rather than retraining the entire model.
+## System architecture
 
 ```mermaid
 flowchart TD
-    A[Historical ratings] --> B[Collaborative model]
-    C[Movie metadata] --> D[Text embeddings]
-    D --> E[Content-to-latent mapping]
-    B --> E
-    B --> F[Movie vectors]
-    E --> G[Vectors for new movies]
-    F --> H[Adaptive question selector]
-    I[User preference posterior] --> H
-    H --> J[Movie-pair question]
-    J --> K[Answer or skip]
-    K --> I
-    I --> L[Recommendation ranking]
-    F --> L
-    G --> L
-    L --> M[Streamlit demo]
+    A[MovieLens ratings] --> B[Positive-interaction matrix]
+    B --> C[Implicit ALS]
+    C --> D[32-dimensional user vectors]
+    C --> E[32-dimensional movie vectors]
+
+    F[Movie titles and genres] --> G[Sentence Transformer]
+    G --> H[384-dimensional text embeddings]
+    H --> I[Regularized content mapping]
+    E --> I
+    I --> J[32-dimensional cold-movie vectors]
+
+    E --> K[Hybrid movie catalog]
+    J --> K
+
+    D --> L[User prior statistics]
+    L --> M[Bayesian preference posterior]
+    K --> N[Adaptive question selector]
+    M --> N
+    N --> O[Movie-pair question]
+    O --> P[Answer or skip]
+    P --> M
+
+    M --> Q[Recommendation ranking]
+    K --> Q
+    Q --> R[FastAPI and Streamlit]
 ```
 
-## Core concepts
+## Track A: Recommendation Core
 
-| Concept | Meaning in this project |
+Track A is responsible for learning the shared movie space used by the active-learning and evaluation components.
+
+### Implemented pipeline
+
+```text
+MovieLens ratings
+        ↓
+Rating validation and user separation
+        ↓
+Positive interactions: rating >= 4.0
+        ↓
+Train/validation interaction split
+        ↓
+ALS model comparison
+        ↓
+Select positive-only ALS with 32 factors
+        ↓
+Refit using all approved core-training interactions
+        ↓
+Final user and movie vectors
+```
+
+The item cold-start pipeline is:
+
+```text
+Movie title + genres
+        ↓
+all-MiniLM-L6-v2 Sentence Transformer
+        ↓
+384-dimensional normalized text embedding
+        ↓
+Ridge regression mapping
+        ↓
+32-dimensional ALS-compatible movie vector
+```
+
+### Final collaborative model
+
+The selected model uses:
+
+| Setting | Value |
 | --- | --- |
-| Collaborative filtering | Learn taste patterns from historical user–movie interactions. |
-| Latent vector | A learned numerical representation of a user or movie. Its dimensions are not necessarily named genres. |
-| Matrix factorization | Learn compact user and movie representations from a sparse interaction matrix. |
-| Prior | A distribution describing possible user preferences before onboarding answers. |
-| Posterior | The updated distribution after incorporating answers. |
-| Expected information gain | Expected reduction in uncertainty after asking a question. |
-| BALD | Bayesian Active Learning by Disagreement; a mutual-information criterion for selecting informative questions. |
-| Content embedding | A numerical representation of item text or metadata. |
+| Algorithm | Implicit-feedback ALS |
+| Interaction rule | Rating greater than or equal to 4.0 |
+| Latent dimensions | 32 |
+| Positive confidence | 40.0 |
+| Regularization | 0.01 |
+| Training iterations | 20 |
+| Random seed | 42 |
+| Execution | CPU |
+| Core-training users | 488 |
+| Final positive interactions | 39,714 |
+| Movies with positive collaborative support | 5,862 |
 
-### Recommendation scoring
+Ratings below the positive threshold are not automatically treated as dislikes in the selected model. A missing rating means an unknown preference.
 
-For an initial model without item biases, the score for user vector `p` and movie vector `q_i` is:
+A signed-interaction variation was also evaluated, but the positive-only model performed better in the selected validation experiment.
 
-```text
-score(p, i) = dot(p, q_i)
-```
+### Recommendation score
 
-Higher scores rank earlier. Scores are not automatically probabilities or predicted star ratings.
-
-### Pairwise preference modeling
-
-A possible answer model for Track B is:
+For user vector \(p_u\) and movie vector \(q_i\):
 
 ```text
-P(choose A | p) = sigmoid(dot(p, q_A - q_B) / temperature)
+score(u, i) = dot(p_u, q_i)
 ```
 
-This is a proposed likelihood, not an implemented or calibrated model. Track B will choose the inference method and calibrate the response model on validation data.
+The score is used for ranking. It is not a probability or a predicted star rating.
 
-### Information-driven question selection
+### Final hybrid catalog
 
-```text
-EIG(pair) = current posterior entropy
-            - expected posterior entropy after the answer
-```
+| Vector source | Movies |
+| --- | ---: |
+| Learned ALS vectors | 5,862 |
+| Content-predicted vectors | 3,880 |
+| Total scorable movies | **9,742** |
 
-The expectation considers possible answers and their predicted probabilities. BALD can be estimated from posterior samples using predictive entropy minus average conditional entropy.
+The hybrid core preserves learned ALS vectors whenever collaborative support exists. It uses metadata-derived vectors for movies without positive training support.
 
-Selecting an informative question is different from selecting a movie the user is most likely to enjoy. The best question helps distinguish plausible taste profiles.
-
-## Team responsibilities
-
-| Track | Owner | Responsibilities | Main handoff |
-| --- | --- | --- | --- |
-| A. Recommendation Core | Person 1 | Data preparation for model training, matrix factorization, movie vectors, ranking, content embeddings, and item cold-start mapping | Versioned model artifacts and a ranking interface |
-| B. Active Learning Engine | Person 2 | User prior and posterior, answer likelihood, inference, candidate-pair selection, and expected-information-gain/BALD estimation | Session preference state and adaptive questions |
-| C. Evaluation and Deployment | Person 3 | Shared data splits, fixed baseline, niche subset, evaluation harness, FastAPI, Streamlit, Docker, and Cloud Run integration | Reproducible experiments and a working application |
-
-Track A can start immediately. Track B can initially use mock movie vectors. Track C can develop the data split, baseline, and evaluation harness before full integration.
-
-### Track A: Person 1 deliverables
-
-- Reproducible preprocessing using the agreed training split.
-- A trained collaborative model with an agreed vector dimension.
-- Movie vectors and stable movie-ID-to-row mappings.
-- A function that ranks eligible movies for a supplied user vector.
-- A metadata encoder and a trained content-to-latent mapping.
-- Training-user vectors or summary statistics to support Track B's prior design.
-- Saved artifacts with matching model versions and configuration.
-- Validation of ranking behavior and performance on held-out cold items.
-
-Suggested implementation order: collaborative model → ranking → handoff to Track B → content mapping → cold-item validation → packaging.
-
-## Planned technology stack
-
-| Component | Initial approach |
-| --- | --- |
-| Language | Python |
-| Data preparation | pandas, NumPy, SciPy sparse matrices |
-| Collaborative model | ALS through `implicit`; BPR or LightFM are alternatives |
-| Content embeddings | `sentence-transformers` |
-| Content-to-latent mapping | Regularized linear regression as an initial baseline |
-| Active learning | Bayesian preference inference with approximate posterior sampling |
-| API | FastAPI |
-| Demo | Streamlit |
-| Packaging | Docker |
-| Deployment | Google Cloud Run |
-
-The team will start with one collaborative model rather than implement every alternative.
-
-## Dataset and preprocessing
-
-The initial development dataset is MovieLens. A stable benchmark release should be selected for final reported experiments.
-
-Useful fields include:
-
-```text
-ratings: user_id, movie_id, rating, timestamp
-movies:  movie_id, title, genres
-```
-
-MovieLens provides titles, genres, and user tags; plot summaries require a separate source. User-generated tags must be restricted to information available under the chosen split and cold-start scenario.
-
-If using implicit ALS, explicitly convert star ratings into positive interactions and confidence weights. For example, ratings of 4 or above may count as positives. Missing ratings mean unknown preferences, not explicit dislike.
-
-For item cold start, encode metadata and learn a mapping into the collaborative space. Text embeddings cannot be used interchangeably with collaborative vectors without alignment.
-
-Data download instructions, release checksums, and preprocessing commands will be added with the implementation. Follow the selected dataset's usage terms and attribution requirements.
-
-## Shared interface contract
-
-Proposed Track A interfaces:
+It can also encode a completely new movie from metadata:
 
 ```python
-get_item_vector(movie_id: int) -> ndarray
+new_movie_vector = core.embed_new_item({
+    "title": "The Last Signal (2026)",
+    "genres": ["Sci-Fi", "Thriller"],
+})
+```
+
+The returned vector has shape `(32,)` and can be scored against a compatible user-preference vector.
+
+## Dataset and splitting
+
+The development dataset is [MovieLens latest-small](https://grouplens.org/datasets/movielens/latest/).
+
+It contains:
+
+| File | Purpose |
+| --- | --- |
+| `ratings.csv` | User, movie, rating, and timestamp |
+| `movies.csv` | Movie title and genres |
+| `tags.csv` | User-generated movie tags |
+| `links.csv` | IMDb and TMDb identifiers |
+
+The shared user split separates:
+
+- **Core-training users:** used for collaborative model training
+- **Evaluation users:** reserved for the onboarding experiment
+
+Track A verifies that evaluation-user ratings do not enter collaborative training.
+
+The raw dataset, processed matrices, and trained model artifacts are ignored by Git because they are generated locally and may be large.
+
+## Collaborative-model results
+
+The selected 32-dimensional positive-only ALS model was evaluated against a popularity baseline using held-out positive interactions.
+
+| k | ALS NDCG@k | Popularity NDCG@k | ALS MAP@k | Popularity MAP@k |
+| ---: | ---: | ---: | ---: | ---: |
+| 5 | **0.2148** | 0.1892 | **0.1369** | 0.1308 |
+| 10 | **0.2148** | 0.1819 | **0.1188** | 0.1075 |
+| 20 | **0.2384** | 0.1849 | **0.1188** | 0.0936 |
+
+At `k=10`, the selected ALS model improved NDCG by approximately **18.1% relative to the popularity baseline**.
+
+These values are ranking metrics, not classification accuracy percentages.
+
+## Item cold-start evaluation
+
+A separate leakage-controlled experiment evaluated movies whose interactions were entirely removed from ALS training.
+
+### Experimental split
+
+The 5,862 positively supported movies were divided by movie identity:
+
+| Group | Movies | Positive interactions |
+| --- | ---: | ---: |
+| Warm ALS training | 4,690 | 31,637 |
+| Cold validation | 586 | 4,216 |
+| Cold test | 586 | 3,861 |
+
+Every interaction belonging to a cold validation or cold test movie was excluded from experimental ALS training.
+
+There were:
+
+- 461 eligible validation users
+- 442 eligible test users
+- Zero cold-movie interactions in warm ALS training
+
+A user qualified when they had at least one warm positive interaction and at least one positive interaction in the relevant cold group.
+
+### Compared methods
+
+| Method | Description |
+| --- | --- |
+| Transformer mapping | MiniLM title-and-genre embedding mapped into ALS space |
+| Genre-only mapping | Multi-hot genre features mapped into ALS space |
+| Random ranking | Average of 20 reproducible random rankings |
+
+The Ridge regularization parameter was selected using only cold validation NDCG@10:
+
+- Transformer alpha: `0.1`
+- Genre-only alpha: `10.0`
+
+The selected settings were frozen before evaluating the cold test group.
+
+### Held-out cold-test results
+
+The evaluation ranked only the 586 cold test candidate movies.
+
+| Method | NDCG@10 | MAP@10 | Recall@10 |
+| --- | ---: | ---: | ---: |
+| **Transformer mapping** | **0.1376** | **0.0696** | **0.1470** |
+| Genre-only mapping | 0.0642 | 0.0285 | 0.0583 |
+| Random ranking | 0.0184 | 0.0072 | 0.0171 |
+
+The Transformer mapping achieved approximately:
+
+- **2.14 times** the genre-only NDCG@10
+- **7.46 times** the random-ranking NDCG@10
+- **14.7% mean Recall@10** across eligible users
+
+Paired user-bootstrap comparisons:
+
+| Comparison | Mean NDCG@10 difference | 95% interval |
+| --- | ---: | ---: |
+| Transformer minus genre-only | 0.0734 | [0.0567, 0.0902] |
+| Transformer minus random | 0.1191 | [0.1034, 0.1358] |
+
+The intervals are conditional on this movie split, user cohort, and fitted models. Evaluation over additional random movie splits would be needed for a broader uncertainty estimate.
+
+## Final model artifacts
+
+The final local Track A artifacts are:
+
+```text
+artifacts/
+├── als-final-positive-32d-456946d8a10d/
+└── content-final-32d-dd0ef26fe00b/
+```
+
+The ALS artifact contains:
+
+```text
+als_model.npz
+user_vectors.npy
+item_vectors.npy
+user_ids.npy
+movie_ids.npy
+user_has_positive.npy
+item_has_positive.npy
+prior_mean.npy
+prior_covariance.npy
+manifest.json
+```
+
+The final content artifact contains:
+
+```text
+mapping_weights.npy
+mapping_bias.npy
+catalog_movie_ids.npy
+catalog_predictions.npy
+warm_movie_ids.npy
+encoder/
+selection_manifest.json
+manifest.json
+```
+
+Artifact manifests record model settings, dimensions, source identities, versions, and SHA-256 checksums.
+
+The `artifacts/` directory is excluded from GitHub. Team members therefore need the final artifact folders through shared storage or must reproduce them locally.
+
+## Shared interface
+
+The Track A implementation provides:
+
+```python
+get_item_vector(movie_id: int) -> np.ndarray
 
 recommend(
-    user_vector: ndarray,
+    user_vector: np.ndarray,
     k: int = 10,
     exclude_ids: set[int] | None = None,
 ) -> list[Recommendation]
 
-embed_new_item(metadata: dict) -> ndarray
+embed_new_item(metadata: dict) -> np.ndarray
 ```
 
-Proposed Track B interfaces:
+Load the final hybrid core with:
 
 ```python
-initialize_user() -> PosteriorState
+from src.core.hybrid_core import load_hybrid_core
 
-select_next_pair(state: PosteriorState, candidate_ids: list[int]) -> ItemPair
-
-update_user(state: PosteriorState, answer: PairwiseAnswer) -> PosteriorState
+core = load_hybrid_core(
+    "artifacts/als-final-positive-32d-456946d8a10d",
+    "artifacts/content-final-32d-dd0ef26fe00b",
+)
 ```
 
-These signatures describe the intended contract; they are not available functions yet.
+Retrieve a movie vector:
 
-Before integration, agree on vector dimensions, score biases, answer values, skip behavior, exclusion rules, and artifact versions. A pairwise answer should identify the session, both movies, and the choice: A, B, or skip.
+```python
+movie_vector = core.get_item_vector(movie_id=1)
+print(movie_vector.shape)
+# (32,)
+```
 
-## Evaluation plan
+Generate recommendations from a 32-dimensional user vector:
 
-### Fair baseline comparison
+```python
+recommendations = core.recommend(
+    user_vector,
+    k=10,
+    exclude_ids={1, 50, 260},
+)
+```
 
-Compare fixed and adaptive question selection using the same movie vectors, posterior-update method, recommendation scorer, candidate eligibility rules, and question budget. The baseline sequence must be constructed from training data without access to evaluation-user answers.
+Encode a new movie:
 
-### Metrics
+```python
+new_movie_vector = core.embed_new_item({
+    "title": "Example Movie (2026)",
+    "genres": ["Drama", "Sci-Fi"],
+})
+```
 
-| Metric | Purpose |
-| --- | --- |
-| NDCG@k | Measure whether relevant movies appear near the top, with optional graded relevance. |
-| MAP@k | Measure ranking quality using a defined binary relevance threshold. |
-| Questions needed to reach target | Measure how quickly onboarding reaches a predefined quality threshold. |
-| Quality versus question count | Show the full tradeoff between user effort and recommendation quality. |
-| Target-reached rate | Report how many users reach the target within the maximum budget. |
+Useful properties for Track B include:
 
-Define the convergence target before comparing methods. One option is a chosen fraction of a reference score obtained from additional onboarding-history ratings, without revealing final test ratings.
+```python
+core.n_dims
+core.prior_mean
+core.prior_covariance
+core.available_movie_ids
+```
 
-Report users who never reach the target, uncertainty across users or seeds, and skips separately from informative answers.
+`prior_mean` and `prior_covariance` are empirical statistics calculated from supported training-user ALS vectors. Track B remains responsible for choosing and validating the final Bayesian prior and posterior-update procedure.
 
-### User cold-start protocol
+## Team responsibilities
 
-1. Separate core-training users from evaluation users.
-2. Split each evaluation user's ratings into an onboarding answer pool and a hidden recommendation test set.
-3. Simulate pairwise answers only when the required ratings are available.
-4. Define how ties and unavailable answers are handled.
-5. Evaluate rankings after each onboarding step on the untouched test set.
+| Track | Owner | Responsibilities | Current handoff |
+| --- | --- | --- | --- |
+| A. Recommendation Core | Person 1 | ALS, vectors, ranking, content embeddings, item cold-start | Final hybrid core and versioned artifacts |
+| B. Active Learning Engine | Person 2 | User prior/posterior, answer likelihood, BALD/EIG pair selection | Uses Track A’s 32-dimensional vectors |
+| C. Evaluation and Deployment | Person 3 | Fixed baseline, niche evaluation, API, Streamlit, Docker, Cloud Run | Replaces mocks with Track A and B implementations |
 
-MovieLens does not provide direct answers to arbitrary pairwise questions. Comparisons inferred from ratings are an offline approximation and must be described as such.
+### Track A handoff to Track B
 
-### Niche-taste subset
+Track B receives:
 
-Define the subset before measuring outcomes. A candidate criterion is disagreement with rating consensus on popular movies, requiring enough observations for a meaningful estimate.
+- 32-dimensional movie vectors
+- Stable movie ID mappings
+- Empirical training-user prior mean
+- Empirical training-user covariance
+- Movie-vector lookup
+- New-movie metadata encoder
 
-Compute popularity and consensus from core-training data. Use a separate evaluation-user history portion for subset membership rather than the final recommendation test set. Report results for all users and the niche subset.
+### Track A handoff to Track C
 
-### Item cold-start protocol
+Track C receives:
 
-Hold out selected movies' interactions from collaborative training. Use only permitted metadata to estimate their vectors, then evaluate ranking quality using held-out interactions. Keep this experiment separate from the main onboarding comparison.
+- `load_hybrid_core()`
+- Recommendation ranking
+- Exclusion support
+- Final artifact versions
+- Collaborative-model validation reports
+- Item cold-start test reports
+
+## Pairwise preference model
+
+A possible answer likelihood for Track B is:
+
+```text
+P(choose A | p) =
+    sigmoid(dot(p, q_A - q_B) / temperature)
+```
+
+Where:
+
+- `p` is the current user-preference vector
+- `q_A` and `q_B` are movie vectors
+- `temperature` controls response confidence
+
+Track B must select and calibrate the final inference model.
+
+## Information-driven question selection
+
+The adaptive engine aims to select the pair with the highest expected reduction in uncertainty:
+
+```text
+EIG(pair) =
+    current posterior entropy
+    - expected posterior entropy after observing the answer
+```
+
+A BALD-style approximation can estimate mutual information from posterior samples.
+
+The most informative question is not necessarily the pair containing the movies with the highest recommendation scores. A useful question separates competing explanations of the user’s taste.
+
+## Installation
+
+Python 3.11 is recommended.
+
+### Windows PowerShell
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+python -m pip install --upgrade pip
+python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+python -m pip install -r requirements.txt
+```
+
+The project can train and run on CPU. The MovieLens-small ALS and mapping experiments complete quickly after the Transformer model has been downloaded.
+
+## Data preparation
+
+Download MovieLens according to `configs/data.yaml`:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.data.download
+```
+
+Create the shared user split:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.data.splits
+```
+
+Prepare the interaction matrices:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.data_prep
+.\.venv\Scripts\python.exe -m src.core.validation_split
+.\.venv\Scripts\python.exe -m src.core.signed_data_prep
+```
+
+## Collaborative training and evaluation
+
+Train the configured ALS model:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.train
+```
+
+Evaluate a validation-trained model:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.evaluate `
+  --artifact-dir "artifacts/als-positive-32d-b17e41814e6f"
+```
+
+Refit the selected configuration using all core-training positives:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.refit `
+  --selected-artifact "artifacts/als-positive-32d-b17e41814e6f"
+```
+
+## Content mapping
+
+Generate text embeddings and train the initial mapping:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.content.train_mapping `
+  --als-artifact "artifacts/als-final-positive-32d-456946d8a10d"
+```
+
+The first run downloads:
+
+```text
+sentence-transformers/all-MiniLM-L6-v2
+```
+
+The model converts each formatted title-and-genre description into a normalized 384-dimensional embedding.
+
+## Reproducing the item cold-start experiment
+
+Create the movie-level split:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.cold_start_split
+```
+
+Train experimental ALS using only warm movies:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.cold_start_train `
+  --split-dir "data/processed/cold_start/item-split-371a1afb86e1" `
+  --selected-als-artifact "artifacts/als-final-positive-32d-456946d8a10d"
+```
+
+Select mapping settings on cold validation movies:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.content.cold_start_validate `
+  --split-dir "data/processed/cold_start/item-split-371a1afb86e1" `
+  --als-artifact "artifacts/als-cold-experiment-32d-113e2008ad13"
+```
+
+Evaluate the frozen mappings on cold test movies:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.content.cold_start_test `
+  --split-dir "data/processed/cold_start/item-split-371a1afb86e1" `
+  --als-artifact "artifacts/als-cold-experiment-32d-113e2008ad13" `
+  --mapping-artifact "artifacts/cold-mappings-57219c9e4fff"
+```
+
+Refit the final content mapping using the validation-selected setting:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.content.refit_mapping `
+  --als-artifact "artifacts/als-final-positive-32d-456946d8a10d" `
+  --selection-artifact "artifacts/cold-mappings-57219c9e4fff" `
+  --split-dir "data/processed/cold_start/item-split-371a1afb86e1"
+```
+
+Verify the final hybrid core:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.core.hybrid_core `
+  --als-artifact "artifacts/als-final-positive-32d-456946d8a10d" `
+  --content-artifact "artifacts/content-final-32d-dd0ef26fe00b"
+```
+
+## Testing
+
+Run the complete test suite:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Current verified result:
+
+```text
+Ran 93 tests
+OK
+```
+
+A Starlette deprecation warning may appear from the current FastAPI test-client dependency. It does not currently fail the test suite.
+
+## API and demo
+
+Track C’s API and demo can be started with:
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn src.api.main:app --reload
+```
+
+In another terminal:
+
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run demo/app.py
+```
+
+Until Track B and Track C complete real-model integration, some application paths may still use mock implementations.
 
 ## Repository structure
 
 ```text
 .
-├── README.md
-├── configs/                 # Training and evaluation settings (data.yaml, eval.yaml)
-├── data/                    # Local data; follow dataset distribution terms (gitignored)
-├── artifacts/               # Versioned trained outputs
+├── configs/
+│   ├── core.yaml
+│   ├── content.yaml
+│   ├── data.yaml
+│   └── eval.yaml
+├── data/
+│   ├── raw/
+│   └── processed/
+├── artifacts/
+├── reports/
 ├── src/
-│   ├── data/                # Loading, preprocessing, and shared splits
-│   ├── core/                # Track A: vectors and ranking (mock_vectors.py until trained)
-│   ├── content/             # Track A: embeddings and cold-item mapping (not yet implemented)
-│   ├── active_learning/     # Track B: posterior and question selection (mock_model.py until trained)
-│   ├── evaluation/          # Track C: baseline, metrics, and comparison harness
-│   └── api/                 # Track C: FastAPI integration
-├── demo/                    # Track C: Streamlit interface
-├── tests/                   # Model, inference, and integration checks
-├── reports/                 # Experimental results and figures
-└── Dockerfile
+│   ├── active_learning/
+│   ├── api/
+│   ├── content/
+│   │   ├── metadata.py
+│   │   ├── train_mapping.py
+│   │   ├── cold_start_validate.py
+│   │   ├── cold_start_test.py
+│   │   └── refit_mapping.py
+│   ├── core/
+│   │   ├── data_prep.py
+│   │   ├── validation_split.py
+│   │   ├── signed_data_prep.py
+│   │   ├── train.py
+│   │   ├── evaluate.py
+│   │   ├── refit.py
+│   │   ├── als_core.py
+│   │   ├── hybrid_core.py
+│   │   ├── cold_start_split.py
+│   │   └── cold_start_train.py
+│   ├── data/
+│   └── evaluation/
+├── demo/
+├── tests/
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
-This layout matches the originally proposed structure. `src/core` and `src/active_learning` currently hold mock implementations behind the shared interfaces (`src/core/interfaces.py`, `src/active_learning/interfaces.py`) so Track C's harness, API, and demo work end to end; `src/content` is still empty pending Track A's content embeddings and cold-item mapping.
+## Current roadmap
 
-## Roadmap
+- [x] Create the shared user split
+- [x] Prepare validated sparse interaction matrices
+- [x] Train and compare collaborative models
+- [x] Select and refit the final ALS model
+- [x] Export stable user and movie vectors
+- [x] Implement recommendation ranking and exclusions
+- [x] Generate Sentence Transformer movie embeddings
+- [x] Train the content-to-ALS mapping
+- [x] Implement the hybrid recommendation core
+- [x] Run leakage-controlled item cold-start evaluation
+- [x] Compare Transformer, genre-only, and random baselines
+- [x] Run the complete Track A test suite
+- [ ] Complete Bayesian user-posterior inference
+- [ ] Complete BALD/EIG adaptive pair selection
+- [ ] Integrate real Track A and B implementations into the API
+- [ ] Run fixed-versus-adaptive onboarding evaluation
+- [ ] Report results for the niche-taste subset
+- [ ] Complete the Streamlit comparison demo
+- [ ] Package and deploy the integrated application
 
-- [ ] Agree on the dataset release, split protocol, and shared interfaces.
-- [ ] Train and validate the collaborative recommendation core.
-- [ ] Export versioned movie vectors and ID mappings.
-- [ ] Implement the fixed-question baseline.
-- [ ] Implement Bayesian user preference updates.
-- [ ] Implement information-driven pair selection.
-- [ ] Train and evaluate the content-to-latent mapping.
-- [ ] Run overall and niche-subset experiments.
-- [ ] Build the Streamlit comparison demo and FastAPI service.
-- [ ] Package with Docker and deploy to Cloud Run.
-- [ ] Publish reproducible results, setup instructions, and limitations.
+## Limitations
+
+- The development dataset is MovieLens latest-small, so results may not generalize to larger or different catalogs.
+- The reported item cold-start experiment uses one seeded movie split.
+- Cold-test ranking considers only cold-test candidate movies.
+- Movie content currently uses titles and genres; richer metadata may improve predictions.
+- MiniLM is used as a pretrained encoder and is not fine-tuned on MovieLens.
+- The final content mapping is linear.
+- Recorded positive interactions provide incomplete relevance labels.
+- Item cold-start results do not measure the main new-user onboarding objective.
+- Full-system claims require Track B and Track C integration.
+- Model artifacts are not stored in GitHub and must be shared or regenerated.
 
 ## References
 
 - [MovieLens datasets — GroupLens](https://grouplens.org/datasets/movielens/)
-- [MovieLens small dataset README](https://files.grouplens.org/datasets/movielens/ml-latest-small-README.html)
-- [`implicit` documentation](https://benfred.github.io/implicit/)
-- [LightFM item cold-start example](https://making.lyst.com/lightfm/docs/examples/hybrid_crossvalidated.html)
-- [Sentence Transformers usage](https://sbert.net/docs/sentence_transformer/usage/usage.html)
+- [Collaborative Filtering for Implicit Feedback Datasets — Hu, Koren, and Volinsky](https://doi.org/10.1109/ICDM.2008.22)
+- [Matrix Factorization Techniques for Recommender Systems — Koren, Bell, and Volinsky](https://doi.org/10.1109/MC.2009.263)
+- [Implicit recommender library documentation](https://benfred.github.io/implicit/)
+- [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084)
+- [Sentence Transformers documentation](https://sbert.net/)
 - [Bayesian Active Learning for Classification and Preference Learning](https://arxiv.org/abs/1112.5745)
