@@ -2,7 +2,7 @@ validation:
   fraction: 0.2
   seed: 42
 als:
-  interaction_mode: signed
+  interaction_mode: positive
   factors: 32
   regularization: 0.01
   positive_confidence: 40.0
