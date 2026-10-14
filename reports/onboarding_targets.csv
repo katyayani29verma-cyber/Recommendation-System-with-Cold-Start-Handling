@@ -1,5 +1,5 @@
 subset,mode,reached_rate_mean,reached_rate_std,median_questions_mean,median_questions_std
-all,adaptive,0.08196721311475409,0.0,0.0,0.0
-all,fixed,0.08196721311475409,0.0,0.0,0.0
-niche,adaptive,0.0,0.0,,
-niche,fixed,0.0,0.0,,
+all,adaptive,0.44098360655737706,0.0036656852090160594,0.0,0.0
+all,fixed,0.44098360655737706,0.003665685209016049,0.0,0.0
+niche,adaptive,0.22222222222222224,0.0,0.0,0.0
+niche,fixed,0.22222222222222224,0.0,0.0,0.0

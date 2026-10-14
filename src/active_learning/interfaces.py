@@ -1,10 +1,4 @@
-"""Track B's proposed interface contract (README: "Shared interface contract").
-
-Track C depends on this contract, not on Track B's inference method, so the
-evaluation harness can run the fixed-vs-adaptive comparison against
-`MockPointEstimateUserModel` (see mock_model.py) today and swap in Track B's
-real Bayesian posterior later without changing the harness.
-"""
+"""Shared interface for user-preference models."""
 from __future__ import annotations
 
 from dataclasses import dataclass

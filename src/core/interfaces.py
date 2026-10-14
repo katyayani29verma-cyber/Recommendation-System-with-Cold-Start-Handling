@@ -1,10 +1,4 @@
-"""Track A's proposed interface contract (README: "Shared interface contract").
-
-Track C depends on this contract, not on Track A's implementation, so the
-evaluation harness, API, and demo can be built and tested against
-`MockRecommenderCore` (see mock_vectors.py) today and swapped for Track A's
-real trained model later without touching calling code.
-"""
+"""Shared interface for trained and mock recommendation cores."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,6 +14,8 @@ class Recommendation:
 
 
 class RecommenderCore(Protocol):
+    n_dims: int
+
     def get_item_vector(self, movie_id: int) -> np.ndarray: ...
 
     def recommend(

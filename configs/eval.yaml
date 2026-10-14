@@ -1,7 +1,7 @@
 
 real_core:
-  als_artifact: artifacts/als-final-positive-32d-456946d8a10d
-  content_artifact: artifacts/content-final-32d-dd0ef26fe00b
+  als_artifact: artifacts/als-final-positive-32d-af8502cb755d
+  content_artifact: artifacts/content-final-32d-dbcf848d2424
 question_budget: 10
 ranking_k: [5, 10, 20]
 

@@ -19,8 +19,8 @@ The system combines:
 | Track | Status |
 | --- | --- |
 | Track A — Recommendation Core | **Implementation and item cold-start evaluation complete** |
-| Track B — Active Learning Engine | Active Learning Engine: Implementation complete |
-| Track C — Evaluation and Deployment | Scaffolding available; real-model integration and deployment remain |
+| Track B — Active Learning Engine | **Bayesian inference, BALD selection, and temperature calibration complete** |
+| Track C — Evaluation and Deployment | **Real-model wiring and comparison complete; container packaging/deployment pending** |
 
 Track A currently provides a tested recommendation core with:
 
@@ -34,7 +34,28 @@ Track A currently provides a tested recommendation core with:
 - A leakage-controlled item cold-start experiment
 - Versioned and checksum-verified artifacts
 
-The complete adaptive onboarding experiment still requires Track B’s real posterior and question-selection implementation to be connected to Track C’s evaluation pipeline.
+The API and comparison runner select the real hybrid core and Bayesian user model when `mock_vectors.enabled` is false. The real-model onboarding evaluation is complete; its sparse simulated answers show that more work is needed before drawing conclusions about adaptive question quality. Container packaging and deployment remain.
+
+## Project summary
+
+Adaptive Taste is a MovieLens-based prototype for cold-start recommendations. It combines a collaborative model with movie metadata and compares a fixed onboarding questionnaire against one that chooses each movie pair based on the current user's estimated preferences.
+
+### How the system works
+
+1. **Prepare the data.** MovieLens ratings are split into core-training users and held-out evaluation users. Positive interactions train the collaborative model; held-out evaluation users' ratings are reserved for simulating onboarding answers and measuring recommendation quality.
+2. **Build the shared item space (Track A).** A 32-factor implicit ALS model learns user and supported-movie vectors. A MiniLM encoder turns titles and genres into normalized 384-dimensional embeddings; a ridge mapping projects those into the ALS space for unsupported catalog movies. The hybrid catalog contains 9,742 movies: 5,862 with ALS vectors and 3,880 with content-predicted vectors.
+3. **Learn from onboarding answers (Track B).** The Bayesian pairwise model initializes from the training users' empirical prior statistics, updates a Gaussian approximation after each A/B answer, and ranks movies using its posterior mean. Monte Carlo BALD scores choose adaptive questions. A skip contributes no update.
+4. **Compare and serve (Track C).** A farthest-point fixed sequence is compared with adaptive question selection using the same model-update method and question budget. The API exposes session and recommendation endpoints, and the Streamlit demo uses that API. `mock_vectors.enabled` in `configs/eval.yaml` switches between mock and real core/model wiring; the checked-in configuration selects the real implementation.
+
+### Current verified state
+
+- Tracks A and B are implemented and connected to Track C's comparison and API paths.
+- Rebuilt versioned model artifacts load and pass hybrid-core checks, including a finite 32-dimensional vector for a new movie.
+- The held-out item cold-start test used 586 cold candidate movies and 442 eligible users. Transformer mapping reached NDCG@10 **0.1376**, versus **0.0642** for genre-only and **0.0184** for random ranking.
+- The real onboarding comparison ran for five seeds over 122 users, including 18 in the niche subset. It completed, but averaged about **9.9 skips per 10 questions**. Fixed and adaptive recommendation quality was nearly unchanged, so this run verifies integration and measurement—not an adaptive advantage.
+- The local API start/answer/recommend flow was smoke-tested against the real artifacts. The full test suite passed: **131 tests and 37 subtests**.
+
+The trained artifacts and generated data are local, ignored by Git, and must be regenerated or shared on another machine. Docker/Podman and the Google Cloud CLI are unavailable in the current environment, so the container image and Cloud Run deployment have not been verified. Deployment also requires a configured, authorized cloud project.
 
 ## The problem
 
@@ -60,7 +81,7 @@ The application compares two onboarding strategies:
 
 A user chooses between two movies or skips the question. Each answer updates the estimated preference distribution, which is then used to rank movies.
 
-The main project evaluation will measure:
+The onboarding evaluation reports:
 
 - Recommendation quality after each question
 - Questions needed to reach a target recommendation quality
@@ -296,8 +317,8 @@ The final local Track A artifacts are:
 
 ```text
 artifacts/
-├── als-final-positive-32d-456946d8a10d/
-└── content-final-32d-dd0ef26fe00b/
+├── als-final-positive-32d-af8502cb755d/
+└── content-final-32d-dbcf848d2424/
 ```
 
 The ALS artifact contains:
@@ -330,7 +351,7 @@ manifest.json
 
 Artifact manifests record model settings, dimensions, source identities, versions, and SHA-256 checksums.
 
-The `artifacts/` directory is excluded from GitHub. Team members therefore need the final artifact folders through shared storage or must reproduce them locally.
+The `artifacts/` directory is excluded from GitHub. These version names identify the artifacts regenerated for this checkout; team members need the final artifact folders through shared storage or must reproduce them locally. If artifacts are regenerated, update `configs/eval.yaml` to the new version directories.
 
 ## Shared interface
 
@@ -354,8 +375,8 @@ Load the final hybrid core with:
 from src.core.hybrid_core import load_hybrid_core
 
 core = load_hybrid_core(
-    "artifacts/als-final-positive-32d-456946d8a10d",
-    "artifacts/content-final-32d-dd0ef26fe00b",
+    "artifacts/als-final-positive-32d-af8502cb755d",
+    "artifacts/content-final-32d-dbcf848d2424",
 )
 ```
 
@@ -395,7 +416,7 @@ core.prior_covariance
 core.available_movie_ids
 ```
 
-`prior_mean` and `prior_covariance` are empirical statistics calculated from supported training-user ALS vectors. Track B remains responsible for choosing and validating the final Bayesian prior and posterior-update procedure.
+`prior_mean` and `prior_covariance` are empirical statistics calculated from supported training-user ALS vectors. The Bayesian user model uses these as its default prior, with configurable covariance shrinkage and a calibrated pairwise-likelihood temperature.
 
 ## Team responsibilities
 
@@ -403,7 +424,7 @@ core.available_movie_ids
 | --- | --- | --- | --- |
 | A. Recommendation Core | Person 1 | ALS, vectors, ranking, content embeddings, item cold-start | Final hybrid core and versioned artifacts |
 | B. Active Learning Engine | Person 2 | User prior/posterior, answer likelihood, BALD/EIG pair selection | Uses Track A’s 32-dimensional vectors |
-| C. Evaluation and Deployment | Person 3 | Fixed baseline, niche evaluation, API, Streamlit, Docker, Cloud Run | Replaces mocks with Track A and B implementations |
+| C. Evaluation and Deployment | Person 3 | Fixed baseline, niche evaluation, API, Streamlit, Docker, Cloud Run | Real-model wiring; run and deployment remain |
 
 ### Track A handoff to Track B
 
@@ -442,7 +463,7 @@ Where:
 - `q_A` and `q_B` are movie vectors
 - `temperature` controls response confidence
 
-Track B must select and calibrate the final inference model.
+The current Track B implementation uses Bayesian posterior updates and Monte Carlo BALD scores to select adaptive questions. The calibrated temperature and prior settings are in `configs/active_learning.yaml`.
 
 ## Information-driven question selection
 
@@ -457,6 +478,21 @@ EIG(pair) =
 A BALD-style approximation can estimate mutual information from posterior samples.
 
 The most informative question is not necessarily the pair containing the movies with the highest recommendation scores. A useful question separates competing explanations of the user’s taste.
+
+## Real-model onboarding evaluation
+
+The fixed-versus-adaptive experiment was run with the regenerated hybrid core and Bayesian model over five seeds. It included 122 evaluation users, of whom 18 were in the niche subset.
+
+| Subset | Mode | NDCG@20 before questions | NDCG@20 after 10 questions | Mean skips / 10 |
+| --- | --- | ---: | ---: | ---: |
+| All users (122) | Fixed | 0.2361 | 0.2365 | 9.90 |
+| All users (122) | Adaptive | 0.2361 | 0.2361 | 9.94 |
+| Niche (18) | Fixed | 0.1309 | 0.1309 | 9.97 |
+| Niche (18) | Adaptive | 0.1309 | 0.1306 | 9.99 |
+
+The target-reached rate was 44.1% overall and 22.2% for the niche subset in both modes; the median questions-to-target was zero because these users already met the target at step zero. Nearly every simulated answer was a skip: an evaluation user's onboarding history rarely contains both movies in a candidate pair. Skips correctly produce no posterior update, but this means this experiment does **not** demonstrate an adaptive advantage. Improve answer coverage or use a validated response simulator before making effectiveness claims.
+
+Detailed curves and target summaries are saved in `reports/onboarding_comparison.csv`, `reports/onboarding_summary.csv`, and `reports/onboarding_targets.csv`.
 
 ## Installation
 
@@ -509,14 +545,14 @@ Evaluate a validation-trained model:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.core.evaluate `
-  --artifact-dir "artifacts/als-positive-32d-b17e41814e6f"
+  --artifact-dir "artifacts/als-positive-32d-a0dd32ee4913"
 ```
 
 Refit the selected configuration using all core-training positives:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.core.refit `
-  --selected-artifact "artifacts/als-positive-32d-b17e41814e6f"
+  --selected-artifact "artifacts/als-positive-32d-a0dd32ee4913"
 ```
 
 ## Content mapping
@@ -525,7 +561,7 @@ Generate text embeddings and train the initial mapping:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.content.train_mapping `
-  --als-artifact "artifacts/als-final-positive-32d-456946d8a10d"
+  --als-artifact "artifacts/als-final-positive-32d-af8502cb755d"
 ```
 
 The first run downloads:
@@ -548,42 +584,42 @@ Train experimental ALS using only warm movies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.core.cold_start_train `
-  --split-dir "data/processed/cold_start/item-split-371a1afb86e1" `
-  --selected-als-artifact "artifacts/als-final-positive-32d-456946d8a10d"
+  --split-dir "data/processed/cold_start/item-split-a829a7b0331d" `
+  --selected-als-artifact "artifacts/als-final-positive-32d-af8502cb755d"
 ```
 
 Select mapping settings on cold validation movies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.content.cold_start_validate `
-  --split-dir "data/processed/cold_start/item-split-371a1afb86e1" `
-  --als-artifact "artifacts/als-cold-experiment-32d-113e2008ad13"
+  --split-dir "data/processed/cold_start/item-split-a829a7b0331d" `
+  --als-artifact "artifacts/als-cold-experiment-32d-af6ef159338c"
 ```
 
 Evaluate the frozen mappings on cold test movies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.content.cold_start_test `
-  --split-dir "data/processed/cold_start/item-split-371a1afb86e1" `
-  --als-artifact "artifacts/als-cold-experiment-32d-113e2008ad13" `
-  --mapping-artifact "artifacts/cold-mappings-57219c9e4fff"
+  --split-dir "data/processed/cold_start/item-split-a829a7b0331d" `
+  --als-artifact "artifacts/als-cold-experiment-32d-af6ef159338c" `
+  --mapping-artifact "artifacts/cold-mappings-2112320f3932"
 ```
 
 Refit the final content mapping using the validation-selected setting:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.content.refit_mapping `
-  --als-artifact "artifacts/als-final-positive-32d-456946d8a10d" `
-  --selection-artifact "artifacts/cold-mappings-57219c9e4fff" `
-  --split-dir "data/processed/cold_start/item-split-371a1afb86e1"
+  --als-artifact "artifacts/als-final-positive-32d-af8502cb755d" `
+  --selection-artifact "artifacts/cold-mappings-2112320f3932" `
+  --split-dir "data/processed/cold_start/item-split-a829a7b0331d"
 ```
 
 Verify the final hybrid core:
 
 ```powershell
 .\.venv\Scripts\python.exe -m src.core.hybrid_core `
-  --als-artifact "artifacts/als-final-positive-32d-456946d8a10d" `
-  --content-artifact "artifacts/content-final-32d-dd0ef26fe00b"
+  --als-artifact "artifacts/als-final-positive-32d-af8502cb755d" `
+  --content-artifact "artifacts/content-final-32d-dbcf848d2424"
 ```
 
 ## Testing
@@ -591,14 +627,13 @@ Verify the final hybrid core:
 Run the complete test suite:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Current verified result:
+Latest verified result:
 
 ```text
-Ran 93 tests
-OK
+131 passed, 1 warning, 37 subtests passed
 ```
 
 A Starlette deprecation warning may appear from the current FastAPI test-client dependency. It does not currently fail the test suite.
@@ -617,7 +652,7 @@ In another terminal:
 .\.venv\Scripts\python.exe -m streamlit run demo/app.py
 ```
 
-Until Track B and Track C complete real-model integration, some application paths may still use mock implementations.
+The API and comparison runner use `mock_vectors.enabled` in `configs/eval.yaml` to select mock or trained recommendation vectors. With the checked-in setting (`false`), the versioned ALS and content artifacts must be present locally. For artifact-free interface development, set it to `true`.
 
 ## Repository structure
 
@@ -678,11 +713,13 @@ Until Track B and Track C complete real-model integration, some application path
 - [x] Run the complete Track A test suite
 - [x] Complete Bayesian user-posterior inference
 - [x] Complete BALD/EIG adaptive pair selection
-- [ ] Integrate real Track A and B implementations into the API
-- [ ] Run fixed-versus-adaptive onboarding evaluation
-- [ ] Report results for the niche-taste subset
-- [ ] Complete the Streamlit comparison demo
-- [ ] Package and deploy the integrated application
+- [x] Integrate configured Track A and B implementations into the API
+- [x] Integrate configured Track A and B implementations into the comparison runner
+- [x] Run fixed-versus-adaptive onboarding evaluation
+- [x] Report results for the niche-taste subset
+- [x] Connect the Streamlit comparison demo to the integrated API
+- [ ] Build and run the Docker image locally
+- [ ] Deploy the integrated application to Cloud Run
 
 ## Limitations
 
@@ -694,8 +731,9 @@ Until Track B and Track C complete real-model integration, some application path
 - The final content mapping is linear.
 - Recorded positive interactions provide incomplete relevance labels.
 - Item cold-start results do not measure the main new-user onboarding objective.
-- Full-system claims require Track B and Track C integration.
+- The first real-model onboarding evaluation produced nearly all skip answers; it does not establish an adaptive advantage. Improve simulated answer coverage before drawing effectiveness conclusions.
 - Model artifacts are not stored in GitHub and must be shared or regenerated.
+- Docker and the Google Cloud CLI are not installed in the current environment, so local image and Cloud Run deployment checks have not been run.
 
 ## References
 

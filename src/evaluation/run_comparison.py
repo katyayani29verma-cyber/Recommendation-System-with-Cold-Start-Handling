@@ -1,11 +1,8 @@
-"""End-to-end fixed-vs-adaptive onboarding comparison (README: "Fair
-baseline comparison").
+"""End-to-end fixed-vs-adaptive onboarding comparison.
 
-Runs today against mock Track A vectors and a mock Track B point-estimate
-user model (see src/core/mock_vectors.py and src/active_learning/mock_model.py).
-Swap `RecommenderCore` and `UserModel` for the real implementations once
-those tracks land artifacts -- nothing else in this script should need to
-change, since both are called only through their shared interfaces.
+Implementations are selected by the shared factory and ``mock_vectors.enabled``
+in ``configs/eval.yaml``. Both modes use the same user-model update method;
+only the source of their questions differs.
 
 The comparison is repeated over `seeds` (configs/eval.yaml). A seed controls
 the fixed sequence's starting point and the user model's randomness; the
@@ -20,9 +17,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from src.active_learning.mock_model import MockPointEstimateUserModel
+from src.active_learning.factory import build_core, build_user_model
+from src.active_learning.interfaces import UserModel
 from src.core.interfaces import RecommenderCore
-from src.core.mock_vectors import MockRecommenderCore
 from src.data.config import REPO_ROOT, load_config
 from src.data.niche import compute_niche_user_ids, compute_popular_movie_consensus
 from src.data.splits import ColdStartSplit, load_ratings, make_cold_start_split
@@ -40,12 +37,16 @@ def run_mode(
     niche_ids: set[int],
     eval_cfg: dict,
 ) -> list[dict]:
-    n_dims = eval_cfg["mock_vectors"]["n_dims"]
+    n_dims = core.n_dims
     ks = eval_cfg["ranking_k"]
     top_k = max(ks)
     budget = eval_cfg["question_budget"]
     # Offset keeps the two modes' random streams independent for a given seed.
-    model = MockPointEstimateUserModel(core, n_dims=n_dims, seed=2 * seed + (mode == "adaptive"))
+    model: UserModel = build_user_model(
+        core,
+        eval_cfg,
+        seed=2 * seed + int(mode == "adaptive"),
+    )
 
     rows: list[dict] = []
     for user_id in split.eval_user_ids:
@@ -150,9 +151,7 @@ def main() -> None:
     print(f"Evaluation users: {len(split.eval_user_ids)}, niche subset: {len(niche_ids)}")
 
     all_movie_ids = sorted(ratings["movieId"].unique().tolist())
-    core = MockRecommenderCore(
-        all_movie_ids, n_dims=eval_cfg["mock_vectors"]["n_dims"], seed=eval_cfg["mock_vectors"]["seed"]
-    )
+    core = build_core(eval_cfg, all_movie_ids)
     candidate_ids = baseline.select_popular_movies(
         split.core_train, data_cfg["niche_subset"]["min_ratings_for_popularity"]
     )

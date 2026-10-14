@@ -7,9 +7,8 @@ Simulates pairwise answers from each evaluation user's onboarding pool
 the hidden test set after every question.
 
 This module is deliberately agnostic to *how* vectors or posteriors are
-produced -- it only calls the Track A / Track B contracts -- so it keeps
-working unchanged once the mock implementations are swapped for the real
-ones.
+produced -- it only calls the Track A / Track B contracts -- so it works
+with either the configured mock or real implementations.
 """
 from __future__ import annotations
 

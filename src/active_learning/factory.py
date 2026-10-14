@@ -6,6 +6,7 @@ from pathlib import Path
 from src.active_learning.bayesian_model import BayesianPairwiseUserModel
 from src.active_learning.mock_model import MockPointEstimateUserModel
 from src.core.interfaces import RecommenderCore
+from src.active_learning.interfaces import UserModel
 from src.data.config import REPO_ROOT, load_config
 
 CALIBRATION_FILE = REPO_ROOT / "reports" / "temperature_calibration.json"
@@ -36,7 +37,12 @@ def resolve_temperature(al_cfg: dict, calibration_file: Path = CALIBRATION_FILE)
     return float(json.loads(calibration_file.read_text())["temperature"])
 
 
-def build_user_model(core: RecommenderCore, eval_cfg: dict, seed: int = 0, al_cfg: dict | None = None):
+def build_user_model(
+    core: RecommenderCore,
+    eval_cfg: dict,
+    seed: int = 0,
+    al_cfg: dict | None = None,
+) -> UserModel:
     al_cfg = al_cfg or load_config("active_learning")
     cfg = al_cfg["user_model"]
     if eval_cfg["mock_vectors"]["enabled"] or cfg["kind"] == "mock":

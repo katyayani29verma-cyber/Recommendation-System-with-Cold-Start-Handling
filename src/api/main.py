@@ -1,8 +1,5 @@
-"""FastAPI service wiring together the Track A and Track B contracts behind
-HTTP endpoints for the Streamlit demo (README: "Online onboarding").
-
-Runs today with mock vectors/model; swap `build_core()` / `build_model()`
-for the real Track A/B artifacts once available.
+"""FastAPI service wiring the configured recommendation and user models
+behind HTTP endpoints for the Streamlit demo.
 
 Usage:
     uvicorn src.api.main:app --reload
@@ -10,16 +7,15 @@ Usage:
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass, field
 from typing import Literal
 
-import numpy as np
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from src.active_learning.interfaces import ItemPair, PairwiseAnswer, PosteriorState
-from src.active_learning.mock_model import MockPointEstimateUserModel
+from src.active_learning.factory import build_core, build_user_model
+from src.active_learning.interfaces import PairwiseAnswer, PosteriorState, UserModel
 from src.core.interfaces import RecommenderCore
-from src.core.mock_vectors import MockRecommenderCore
 from src.data.config import load_config
 from src.data.splits import load_movies, load_ratings, make_cold_start_split
 from src.evaluation import baseline
@@ -27,16 +23,17 @@ from src.evaluation import baseline
 app = FastAPI(title="Adaptive Taste API")
 
 
-class SessionState(BaseModel):
+@dataclass
+class SessionState:
     mode: Literal["fixed", "adaptive"]
-    posterior_mean: list[float]
-    asked: list[tuple[int, int]] = []
+    posterior: PosteriorState
+    asked: list[tuple[int, int]] = field(default_factory=list)
     fixed_index: int = 0
 
 
 _sessions: dict[str, SessionState] = {}
 _core: RecommenderCore | None = None
-_model: MockPointEstimateUserModel | None = None
+_model: UserModel | None = None
 _fixed_pairs: list[tuple[int, int]] = []
 _candidate_ids: list[int] = []
 _question_budget: int = 0
@@ -56,9 +53,8 @@ def _ensure_loaded() -> None:
     _movies_by_id = movies.set_index("movieId").to_dict(orient="index")
 
     all_movie_ids = sorted(ratings["movieId"].unique().tolist())
-    n_dims = eval_cfg["mock_vectors"]["n_dims"]
-    _core = MockRecommenderCore(all_movie_ids, n_dims=n_dims, seed=eval_cfg["mock_vectors"]["seed"])
-    _model = MockPointEstimateUserModel(_core, n_dims=n_dims)
+    _core = build_core(eval_cfg, all_movie_ids)
+    _model = build_user_model(_core, eval_cfg)
 
     # Popularity comes from core-training data only, same as the evaluation.
     split = make_cold_start_split(ratings, data_cfg["split"])
@@ -106,7 +102,7 @@ def _movie_payload(movie_id: int) -> dict:
     return {"movie_id": movie_id, "title": info.get("title", f"Movie {movie_id}")}
 
 
-def _next_pair_for_session(session_id: str, state: SessionState) -> MoviePairResponse | None:
+def _next_pair_for_session(state: SessionState) -> MoviePairResponse | None:
     if len(state.asked) >= _question_budget:
         return None
     if state.mode == "fixed":
@@ -117,8 +113,7 @@ def _next_pair_for_session(session_id: str, state: SessionState) -> MoviePairRes
         remaining = [m for m in _candidate_ids if m not in {mid for pair in state.asked for mid in pair}]
         if len(remaining) < 2:
             return None
-        posterior = PosteriorState(mean_vector=np.array(state.posterior_mean))
-        pair = _model.select_next_pair(posterior, remaining)
+        pair = _model.select_next_pair(state.posterior, remaining)
         movie_a, movie_b = pair.movie_a, pair.movie_b
     return MoviePairResponse(movie_a=_movie_payload(movie_a), movie_b=_movie_payload(movie_b))
 
@@ -128,10 +123,10 @@ def start_session(req: StartSessionRequest) -> StartSessionResponse:
     _ensure_loaded()
     session_id = str(uuid.uuid4())
     posterior = _model.initialize_user()
-    state = SessionState(mode=req.mode, posterior_mean=posterior.mean_vector.tolist())
+    state = SessionState(mode=req.mode, posterior=posterior)
     _sessions[session_id] = state
 
-    next_pair = _next_pair_for_session(session_id, state)
+    next_pair = _next_pair_for_session(state)
     if next_pair is None:
         raise HTTPException(500, "No eligible questions available")
     return StartSessionResponse(session_id=session_id, next_pair=next_pair)
@@ -144,17 +139,15 @@ def answer(req: AnswerRequest) -> AnswerResponse:
     if state is None:
         raise HTTPException(404, "Unknown session_id")
 
-    posterior = PosteriorState(mean_vector=np.array(state.posterior_mean))
     pairwise_answer = PairwiseAnswer(
         session_id=req.session_id, movie_a=req.movie_a, movie_b=req.movie_b, choice=req.choice
     )
-    posterior = _model.update_user(posterior, pairwise_answer)
-    state.posterior_mean = posterior.mean_vector.tolist()
+    state.posterior = _model.update_user(state.posterior, pairwise_answer)
     state.asked.append((req.movie_a, req.movie_b))
     if state.mode == "fixed":
         state.fixed_index += 1
 
-    next_pair = _next_pair_for_session(req.session_id, state)
+    next_pair = _next_pair_for_session(state)
     return AnswerResponse(next_pair=next_pair, done=next_pair is None)
 
 
@@ -166,7 +159,7 @@ def recommend(session_id: str, k: int = 10) -> list[RecommendationItem]:
         raise HTTPException(404, "Unknown session_id")
 
     exclude = {mid for pair in state.asked for mid in pair}
-    recs = _core.recommend(np.array(state.posterior_mean), k=k, exclude_ids=exclude)
+    recs = _core.recommend(state.posterior.mean_vector, k=k, exclude_ids=exclude)
     return [
         RecommendationItem(movie_id=r.movie_id, title=_movie_payload(r.movie_id)["title"], score=r.score)
         for r in recs

@@ -8,6 +8,52 @@ pytest.importorskip("httpx")
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def configured_test_models(monkeypatch):
+    from src.active_learning.bayesian_model import BayesianPairwiseUserModel
+    from src.api import main as api_main
+    from src.core.mock_vectors import MockRecommenderCore
+
+    original_load_config = api_main.load_config
+
+    def load_test_config(name):
+        config = original_load_config(name)
+        if name == "eval":
+            config["mock_vectors"]["enabled"] = True
+        return config
+
+    monkeypatch.setattr(api_main, "load_config", load_test_config)
+    monkeypatch.setattr(
+        api_main,
+        "build_core",
+        lambda cfg, movie_ids: MockRecommenderCore(
+            movie_ids,
+            n_dims=cfg["mock_vectors"]["n_dims"],
+            seed=cfg["mock_vectors"]["seed"],
+        ),
+    )
+    monkeypatch.setattr(
+        api_main,
+        "build_user_model",
+        lambda core, cfg: BayesianPairwiseUserModel(
+            core,
+            prior="isotropic",
+            temperature=1.0,
+        ),
+    )
+    api_main._core = None
+    api_main._model = None
+    api_main._sessions.clear()
+    api_main._fixed_pairs = []
+    api_main._candidate_ids = []
+    api_main._movies_by_id = {}
+    api_main._question_budget = 0
+    yield
+    api_main._core = None
+    api_main._model = None
+    api_main._sessions.clear()
+
+
 def test_start_session_returns_a_pair():
     r = client.post("/session/start", json={"mode": "adaptive"})
     assert r.status_code == 200
@@ -17,6 +63,9 @@ def test_start_session_returns_a_pair():
 
 
 def test_full_session_flow_reaches_recommendations():
+    from src.active_learning.bayesian_model import GaussianPosterior
+    from src.api import main as api_main
+
     start = client.post("/session/start", json={"mode": "adaptive"}).json()
     session_id = start["session_id"]
     pair = start["next_pair"]
@@ -32,6 +81,9 @@ def test_full_session_flow_reaches_recommendations():
     )
     assert r.status_code == 200
     assert r.json()["done"] is False
+    posterior = api_main._sessions[session_id].posterior
+    assert isinstance(posterior.extra, GaussianPosterior)
+    assert posterior.extra.n_answers == 1
 
     recs = client.get(f"/session/{session_id}/recommend")
     assert recs.status_code == 200
