@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "stage": "item_cold_start_test_report",
+  "mapping_manifest_sha256": "4860176f297c5675d697c53a080d0d93daf7035c104b24c6c8b460709585c501",
+  "split_manifest_sha256": "ce75c6b8c93fc7a7a703bba6c056e2309f2fd615e7c2ed5b64464d07a942d027",
+  "als_manifest_sha256": "89b3eb44dcc36b876553435df78b35abbe1c290f9cc8b92073ba70bc60a6f829",
+  "evaluation_group": "test",
+  "k": 10,
+  "bootstrap_seed": 42,
+  "bootstrap_repetitions": 2000,
+  "protocol_version": 1,
+  "selected_alphas": {
+    "transformer": 0.1,
+    "genre_only": 10.0
+  },
+  "candidate_movies": 586,
+  "evaluated_users": 442,
+  "evaluation_scope": "cold_movies_only",
+  "relevance": "binary_positive",
+  "confidence_interval_scope": "Paired bootstrap over eligible users, conditional on this movie split and these fitted models.",
+  "random_baseline_runs": 20,
+  "file_sha256": {
+    "summary.csv": "3f1946c61057b88f749e36df28aa97c5a23b4d59a88ccf721f1c8dd84985dafd",
+    "ndcg_comparisons.csv": "ffd4f5a0e82a6af5b4a0d56313fbe402ec54ad8f7b34ff82308a83245c4ea534",
+    "per_user.csv": "a518b41de3b070d752fa1d737ce9d2fbd3114efdc27a9076a864c7098c3aac2a"
+  }
+}
