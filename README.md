@@ -19,7 +19,7 @@ The system combines:
 | Track | Status |
 | --- | --- |
 | Track A — Recommendation Core | **Implementation and item cold-start evaluation complete** |
-| Track B — Active Learning Engine | Integration in progress |
+| Track B — Active Learning Engine | Active Learning Engine: Implementation complete |
 | Track C — Evaluation and Deployment | Scaffolding available; real-model integration and deployment remain |
 
 Track A currently provides a tested recommendation core with:
@@ -676,8 +676,8 @@ Until Track B and Track C complete real-model integration, some application path
 - [x] Run leakage-controlled item cold-start evaluation
 - [x] Compare Transformer, genre-only, and random baselines
 - [x] Run the complete Track A test suite
-- [ ] Complete Bayesian user-posterior inference
-- [ ] Complete BALD/EIG adaptive pair selection
+- [x] Complete Bayesian user-posterior inference
+- [x] Complete BALD/EIG adaptive pair selection
 - [ ] Integrate real Track A and B implementations into the API
 - [ ] Run fixed-versus-adaptive onboarding evaluation
 - [ ] Report results for the niche-taste subset
